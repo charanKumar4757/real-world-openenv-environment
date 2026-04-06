@@ -1,0 +1,58 @@
+name: ACIE-HADO
+description: "Adaptive Cognitive Intelligence Environment for Human-AI Decision Optimization. An OpenEnv project where agents learn to dynamically manage human cognitive resources."
+version: 1.0.0
+entrypoint: "inference.py"
+
+tasks:
+  - id: "easy_task"
+    name: "Student Fatigue Management"
+    level: "easy"
+  - id: "medium_task"
+    name: "Work Queue Optimization"
+    level: "medium"
+  - id: "hard_task"
+    name: "Team Approval Routing"
+    level: "hard"
+
+action_schema:
+  type: "dict"
+  properties:
+    action_type:
+      type: "string"
+      allowed_values: [
+        "calculate_cognitive_score", "predict_recovery", "activate_autopilot", 
+        "assign_task", "reorder_tasks", "delay_task", "trigger_recovery_mode", 
+        "redistribute_team_load", "review_debt", "execute_task",
+        "isolate_stressful_task", "apply_pattern_memory", "simulate_stress_test",
+        "final_answer", "forecast_regret", "provide_transparency", "reserve_recovery_window"
+      ]
+    target_task_id:
+      type: "string"
+      required: false
+    target_user:
+      type: "string"
+      required: false
+
+observation_schema:
+  type: "dict"
+  properties:
+    cognitive_score: { type: "int" }
+    fatigue_level: { type: "string" }
+    decision_count: { type: "int" }
+    recovery_prediction: { type: "int" }
+    decision_debt: { type: "int" }
+    emotional_state: { type: "string" }
+    pending_tasks: { type: "list" }
+    team_scores: { type: "dict" }
+    autopilot_active: { type: "bool" }
+    shield_active: { type: "bool" }
+    upcoming_event: { type: "string" }
+    resilience_score: { type: "int" }
+    fragmentation_index: { type: "int" }
+    context_switches: { type: "int" }
+    interruptions: { type: "int" }
+    predicted_regret: { type: "int" }
+    human_trust_score: { type: "int" }
+    transparency_used: { type: "bool" }
+    recovery_window_reserved: { type: "bool" }
+    minutes_to_event: { type: "int" }
