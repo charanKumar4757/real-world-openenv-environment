@@ -51,41 +51,38 @@ def grade_medium(info: Dict[str, Any], final_state: Dict[str, Any]) -> float:
     score = 0.0
     action_history = info.get("action_history", [])
 
-    # Expected medium flow
-    preferred = [
+    ideal = [
+        "forecast_regret",
         "trigger_recovery_mode",
+        "isolate_stressful_task",
         "reorder_tasks",
         "activate_autopilot",
         "final_answer"
     ]
-    if appears_in_order(action_history, preferred):
-        score += 0.4
 
-    # Stress handling
-    if "trigger_recovery_mode" in action_history or "isolate_stressful_task" in action_history:
-        score += 0.2
+    if appears_in_order(action_history, ideal):
+        score += 0.6
 
-    # Reordering
+    if "forecast_regret" in action_history:
+        score += 0.05
+    if "trigger_recovery_mode" in action_history:
+        score += 0.05
+    if "isolate_stressful_task" in action_history:
+        score += 0.05
     if "reorder_tasks" in action_history:
-        score += 0.15
+        score += 0.05
+    if "activate_autopilot" in action_history:
+        score += 0.05
+    if "final_answer" in action_history:
+        score += 0.05
 
-    # Cognitive protection
-    if final_state.get("cognitive_score", 0) >= 30:
-        score += 0.15
-
-    # Debt control
-    if final_state.get("decision_debt", 0) <= 2:
-        score += 0.1
+    if final_state.get("cognitive_score", 0) >= 20:
+        score += 0.05
 
     score -= repetition_penalty(action_history)
 
-    # Extra rules
-    total_reward = info.get("total_reward", 0.0)
-    if total_reward < 0:
-        score -= 0.2
-
-    if final_state.get("pending_tasks", []):
-        score -= 0.15
+    if total_reward := info.get("total_reward", 0.0) < 0:
+        score -= 0.1
 
     return max(0.0, min(1.0, score))
 
@@ -94,44 +91,40 @@ def grade_hard(info: Dict[str, Any], final_state: Dict[str, Any]) -> float:
     score = 0.0
     action_history = info.get("action_history", [])
 
-    preferred_sequence = [
+    ideal = [
+        "forecast_regret",
         "predict_recovery",
+        "trigger_recovery_mode",
         "isolate_stressful_task",
         "activate_autopilot",
         "redistribute_team_load",
-        "review_debt",
         "final_answer"
     ]
 
-    if appears_in_order(action_history, preferred_sequence):
-        score += 0.45
+    if appears_in_order(action_history, ideal):
+        score += 0.6
 
+    if "forecast_regret" in action_history:
+        score += 0.05
     if "predict_recovery" in action_history:
-        score += 0.10
-
+        score += 0.05
+    if "trigger_recovery_mode" in action_history:
+        score += 0.05
     if "isolate_stressful_task" in action_history:
-        score += 0.10
-
+        score += 0.05
     if "activate_autopilot" in action_history:
-        score += 0.10
-
+        score += 0.05
     if "redistribute_team_load" in action_history:
-        score += 0.10
+        score += 0.05
+    if "final_answer" in action_history:
+        score += 0.05
 
-    if "review_debt" in action_history or final_state.get("decision_debt", 0) == 0:
-        score += 0.10
-
-    if final_state.get("cognitive_score", 0) >= 30:
-        score += 0.10
+    if final_state.get("cognitive_score", 0) >= 20:
+        score += 0.05
 
     score -= repetition_penalty(action_history)
 
-    # Extra rules
-    total_reward = info.get("total_reward", 0.0)
-    if total_reward < 0:
-        score -= 0.2
-
-    if final_state.get("pending_tasks", []):
-        score -= 0.15
+    if total_reward := info.get("total_reward", 0.0) < 0:
+        score -= 0.1
 
     return max(0.0, min(1.0, score))

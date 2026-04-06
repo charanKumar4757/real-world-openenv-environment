@@ -61,6 +61,8 @@ class CognitiveEnv:
                 target_task = next((t for t in self.current_state["pending_tasks"] if t["is_low_stakes"]), None)
             else:
                 target_task = next((t for t in self.current_state["pending_tasks"] if t["task_id"] == target_task_id and t["is_low_stakes"]), None)
+            if target_task is None:
+                target_task = next((t for t in self.current_state["pending_tasks"] if t["is_low_stakes"]), None)
 
             tasks_to_keep = []
             for t in self.current_state["pending_tasks"]:
@@ -244,7 +246,7 @@ class CognitiveEnv:
             self.current_state["fatigue_level"] = "high"
             
         # Check termination condition
-        if len(self.current_state["pending_tasks"]) == 0 or self.step_count >= 10:
+        if self.step_count >= 10:
             self.is_done = True
 
         self.total_reward += step_reward
