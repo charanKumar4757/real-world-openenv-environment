@@ -5,7 +5,7 @@ colorFrom: purple
 colorTo: blue
 sdk: docker
 pinned: false
-short_description: Adaptive Cognitive Intelligence Environment for Human-AI Decision Optimization
+short_description: AI agent for human cognitive optimization
 ---
 
 # ACIE-HADO: Adaptive Cognitive Intelligence Environment for Human-AI Decision Optimization
