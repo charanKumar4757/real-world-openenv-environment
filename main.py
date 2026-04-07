@@ -1,8 +1,7 @@
 import os
 import json
 from typing import Optional, Dict, Any
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI, Body
 from pydantic import BaseModel
 import gradio as gr
 from gradio.routes import mount_gradio_app
@@ -33,18 +32,18 @@ class StepRequest(BaseModel):
 # ============================================
 @app.get("/")
 def root():
-    """Health check endpoint and UI redirect."""
-    return RedirectResponse(url="/ui")
+    """Health check endpoint."""
+    return {"status": "ok", "message": "ACIE-HADO environment is running"}
 
 @app.post("/reset")
-def reset_env(task_level: str = "easy"):
+def reset_env(req: ResetRequest = Body(default_factory=ResetRequest)):
     """Reset environment and return initial observation."""
     try:
-        obs = env.reset(task_level=task_level)
+        obs = env.reset(task_level=req.task_level)
         return {
             "status": "ok",
             "observation": obs,
-            "task_level": task_level
+            "task_level": req.task_level
         }
     except Exception as e:
         return {
@@ -70,17 +69,18 @@ def get_state():
         }
 
 @app.post("/step")
-def step_env(
-    action_type: str,
-    target_task_id: Optional[str] = None,
-    target_user: Optional[str] = None
-):
+def step_env(req: Optional[StepRequest] = Body(default=None)):
     """Take a step in the environment with the given action."""
+    if req is None:
+        return {
+            "status": "error",
+            "message": "Missing request body for step action"
+        }
     try:
         action_dict = {
-            "action_type": action_type,
-            "target_task_id": target_task_id,
-            "target_user": target_user
+            "action_type": req.action_type,
+            "target_task_id": req.target_task_id,
+            "target_user": req.target_user
         }
         obs, reward, done, info = env.step(action_dict)
         return {
