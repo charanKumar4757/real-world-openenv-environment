@@ -8,6 +8,23 @@ from app.grader import grade_easy, grade_medium, grade_hard
 MAX_STEPS = 10
 
 
+def print_start(task_name, env_name, model_name):
+    print(f"[START] task={task_name} env={env_name} model={model_name}", flush=True)
+
+def print_step(step_num, action, reward, done, error=None):
+    action_json = json.dumps(action, ensure_ascii=False)
+    error_text = "null" if error is None else str(error)
+    done_text = "true" if done else "false"
+    print(
+        f"[STEP] step={step_num} action={action_json} reward={reward} done={done_text} error={error_text}",
+        flush=True
+    )
+
+def print_end(task_name, success, steps, score):
+    success_text = "true" if success else "false"
+    print(f"[END] task={task_name} success={success_text} steps={steps} score={score}", flush=True)
+
+
 def build_client():
     api_base = os.environ.get("API_BASE_URL")
     api_key = os.environ.get("API_KEY")
@@ -539,11 +556,14 @@ def run_task(client, model_name, env, task_level):
     info = {}
     action_history = []
     reward_history = []
+    success = False
+    score = 0.0
 
-    print(f"[START] task={task_level} env=acie_hado model={model_name}")
+    print_start(task_level, "acie_hado", model_name)
 
-    while not done and step < MAX_STEPS:
-        action = ask_model_for_action(client, model_name, task_level, state, action_history)
+    try:
+        while not done and step < MAX_STEPS:
+            action = ask_model_for_action(client, model_name, task_level, state, action_history)
         if is_task_complete(task_level, state, action_history):
             action = {"action_type": "final_answer", "target_task_id": None, "target_user": None}
         if action.get("action_type") == "final_answer" and not is_task_complete(task_level, state, action_history):
@@ -601,27 +621,18 @@ def run_task(client, model_name, env, task_level):
 
         done_str = str(done).lower()
 
-        print(
-            f"[STEP] step={step} "
-            f"action={json.dumps(action, ensure_ascii=False)} "
-            f"reward={reward:.2f} "
-            f"done={done_str} "
-            f"error={error}"
-        )
+        print_step(step, action, reward, done, None if error == "null" else error)
 
         state = next_state
 
     score = grade_task(task_level, info, state)
     threshold = get_success_threshold(task_level)
     success = score >= threshold
-    success_str = str(success).lower()
 
-    print(
-        f"[END] success={success_str} "
-        f"steps={step} "
-        f"score={score:.2f} "
-        f"rewards={','.join(reward_history)}"
-    )
+    except Exception as e:
+        print_step(step + 1, {"action_type": "exception"}, 0.0, True, str(e))
+
+    print_end(task_level, success, step, score)
 
     return score
 
