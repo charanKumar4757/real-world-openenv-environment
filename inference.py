@@ -1,11 +1,15 @@
 import os
 import json
-from openai import OpenAI
-
-from app.env import CognitiveEnv
-from app.grader import grade_easy, grade_medium, grade_hard
 
 MAX_STEPS = 10
+
+# Mock mode: set INFERENCE_MOCK=1 for fast testing
+MOCK_MODE = os.environ.get("INFERENCE_MOCK") == "1"
+
+if not MOCK_MODE:
+    from openai import OpenAI
+    from app.env import CognitiveEnv
+    from app.grader import grade_easy, grade_medium, grade_hard
 
 
 def print_start(task_name, env_name, model_name):
@@ -31,26 +35,30 @@ def build_client():
     model_name = os.environ.get("MODEL_NAME")
 
     if not api_base:
-        print("[ERROR] API_BASE_URL is missing")
+        print("[ERROR] API_BASE_URL is missing", flush=True)
         return None, None
 
     if not api_key:
-        print("[ERROR] API_KEY is missing")
+        print("[ERROR] API_KEY is missing", flush=True)
         return None, None
 
     if not model_name:
-        print("[ERROR] MODEL_NAME is missing")
+        print("[ERROR] MODEL_NAME is missing", flush=True)
         return None, None
+
+    if MOCK_MODE:
+        print(f"[INFO] Mock mode: skipping real API connection", flush=True)
+        return "mock_client", model_name
 
     try:
         client = OpenAI(
             base_url=api_base,
             api_key=api_key,
         )
-        print(f"[INFO] Client created successfully with model: {model_name}")
+        print(f"[INFO] Client created successfully with model: {model_name}", flush=True)
         return client, model_name
     except Exception as e:
-        print(f"[ERROR] build_client failed: {e}")
+        print(f"[ERROR] build_client failed: {e}", flush=True)
         return None, None
 
 
@@ -625,9 +633,9 @@ def run_task(client, model_name, env, task_level):
 
         state = next_state
 
-    score = grade_task(task_level, info, state)
-    threshold = get_success_threshold(task_level)
-    success = score >= threshold
+        score = grade_task(task_level, info, state)
+        threshold = get_success_threshold(task_level)
+        success = score >= threshold
 
     except Exception as e:
         print_step(step + 1, {"action_type": "exception"}, 0.0, True, str(e))
@@ -642,22 +650,48 @@ def main():
         client, model_name = build_client()
 
         if client is None or model_name is None:
-            print("[FATAL] Missing configuration. inference.py cannot continue.")
+            print("[FATAL] Missing configuration. inference.py cannot continue.", flush=True)
             return
 
-        env = CognitiveEnv()
-
+        if not MOCK_MODE:
+            env = CognitiveEnv()
+        
         total_scores = {}
+        env_name = "acie_hado"
 
         for task_level in ["easy", "medium", "hard"]:
-            score = run_task(client, model_name, env, task_level)
-            total_scores[task_level] = score
+            if MOCK_MODE:
+                # Fast mock task for testing stdout format
+                print_start(task_level, env_name, model_name)
+                
+                mock_actions = [
+                    {"action_type": "forecast_regret", "target_task_id": None, "target_user": None},
+                    {"action_type": "calculate_cognitive_score", "target_task_id": None, "target_user": None},
+                    {"action_type": "activate_autopilot", "target_task_id": "lunch_order", "target_user": None},
+                    {"action_type": "final_answer", "target_task_id": None, "target_user": None}
+                ]
+                mock_rewards = [0.25, 0.20, 0.60, 0.80]
+                
+                total_reward = 0.0
+                for i, action in enumerate(mock_actions, start=1):
+                    reward = mock_rewards[i - 1]
+                    done = (i == len(mock_actions))
+                    print_step(i, action, reward, done, None)
+                    total_reward += reward
+                
+                score = round(total_reward, 2)
+                print_end(task_level, True, len(mock_actions), score)
+                total_scores[task_level] = score
+            else:
+                # Real task (runs slow)
+                score = run_task(client, model_name, env, task_level)
+                total_scores[task_level] = score
 
         avg_score = sum(total_scores.values()) / len(total_scores)
-        print(f"\n[SUMMARY] average_score={avg_score:.2f}")
+        print(f"\n[SUMMARY] average_score={avg_score:.2f}", flush=True)
 
     except Exception as e:
-        print(f"[FATAL] main() failed: {e}")
+        print(f"[FATAL] main() failed: {e}", flush=True)
         return
 
 
