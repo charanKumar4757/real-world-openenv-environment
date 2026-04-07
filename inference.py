@@ -14,7 +14,10 @@ def build_client():
     model_name = os.getenv("MODEL_NAME")
 
     if not api_base_url or not api_key or not model_name:
-        raise ValueError("API_BASE_URL, API_KEY, and MODEL_NAME are required")
+        raise RuntimeError(
+            "Missing API_BASE_URL, API_KEY, or MODEL_NAME. "
+            "These are required only when running inference.py."
+        )
 
     client = OpenAI(
         api_key=api_key,
