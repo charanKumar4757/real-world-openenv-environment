@@ -2,6 +2,7 @@ import os
 import json
 from typing import Optional, Dict, Any
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 import gradio as gr
 from gradio.routes import mount_gradio_app
@@ -32,8 +33,8 @@ class StepRequest(BaseModel):
 # ============================================
 @app.get("/")
 def root():
-    """Health check endpoint."""
-    return {"status": "ok", "message": "ACIE-HADO environment is running"}
+    """Health check endpoint and UI redirect."""
+    return RedirectResponse(url="/ui")
 
 @app.post("/reset")
 def reset_env(task_level: str = "easy"):
