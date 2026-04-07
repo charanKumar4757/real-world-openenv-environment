@@ -1,53 +1,132 @@
 name: ACIE-HADO
-description: "Adaptive Cognitive Intelligence Environment for Human-AI Decision Optimization. An OpenEnv project where agents learn to dynamically manage human cognitive resources."
+title: Adaptive Cognitive Intelligence Environment for Human-AI Decision Optimization
 version: 1.0.0
+description: |
+  ACIE-HADO is an OpenEnv environment where an AI agent helps optimize human decision-making 
+  by managing cognitive load, fatigue, recovery prediction, decision debt, emotional spillover, 
+  and task distribution.
 entrypoint: "inference.py"
 
+# Task definitions
 tasks:
   - id: "easy_task"
     name: "Student Fatigue Management"
     level: "easy"
+    description: "User shows mild fatigue (cognitive score 45) after many decisions. Must choose among tasks with limited cognitive energy."
+    success_threshold: 0.4
+  
   - id: "medium_task"
     name: "Work Queue Optimization"
     level: "medium"
+    description: "User has high fatigue (cognitive score 30) with emotional spillover. Must manage multiple tasks with varying priority and effort."
+    success_threshold: 0.45
+  
   - id: "hard_task"
-    name: "Team Approval Routing"
+    name: "Team Routing Under Crisis"
     level: "hard"
+    description: "User severely overwhelmed (cognitive score 18) before high-stakes presentation. Must protect cognition and route work to healthy team member."
+    success_threshold: 0.5
 
+# Action space definition
 action_schema:
-  type: "dict"
+  type: "object"
+  required: ["action_type"]
   properties:
     action_type:
       type: "string"
+      description: "Type of action to take"
       allowed_values: [
         "calculate_cognitive_score", "predict_recovery", "activate_autopilot", 
-        "assign_task", "reorder_tasks", "delay_task", "trigger_recovery_mode", 
-        "redistribute_team_load", "review_debt", "execute_task",
-        "isolate_stressful_task", "apply_pattern_memory", "simulate_stress_test",
+        "execute_task", "reorder_tasks", "delay_task", "trigger_recovery_mode", 
+        "redistribute_team_load", "review_debt", "isolate_stressful_task",
         "final_answer", "forecast_regret", "provide_transparency", "reserve_recovery_window"
       ]
     target_task_id:
       type: "string"
-      required: false
+      description: "ID of target task if applicable"
+      nullable: true
     target_user:
       type: "string"
-      required: false
+      description: "Team member to assign task to if applicable"
+      nullable: true
 
+# Observation space definition
 observation_schema:
-  type: "dict"
+  type: "object"
   properties:
-    cognitive_score: { type: "int" }
-    fatigue_level: { type: "string" }
-    decision_count: { type: "int" }
-    recovery_prediction: { type: "int" }
-    decision_debt: { type: "int" }
-    emotional_state: { type: "string" }
-    pending_tasks: { type: "list" }
-    team_scores: { type: "dict" }
-    autopilot_active: { type: "bool" }
-    shield_active: { type: "bool" }
-    upcoming_event: { type: "string" }
-    resilience_score: { type: "int" }
+    cognitive_score: 
+      type: "integer"
+      description: "Current cognitive capacity (0-100)"
+    fatigue_level: 
+      type: "string"
+      description: "Current fatigue state: low, medium, high, overwhelmed"
+    decision_count: 
+      type: "integer"
+      description: "Number of decisions made in current episode"
+    recovery_prediction: 
+      type: "integer"
+      description: "Predicted minutes until full cognitive recovery"
+    decision_debt: 
+      type: "integer"
+      description: "Number of deferred decisions pending review"
+    emotional_state: 
+      type: "string"
+      description: "Current emotional state: neutral, stressed, overwhelmed"
+    spillover_level: 
+      type: "integer"
+      description: "Emotional spillover from recent stressful tasks (0-100)"
+    pending_tasks: 
+      type: "array"
+      description: "List of pending tasks with properties"
+    team_scores: 
+      type: "dict"
+      description: "Cognitive scores of team members"
+    autopilot_active: 
+      type: "boolean"
+      description: "Whether AI autopilot is handling low-stakes tasks"
+    shield_active: 
+      type: "boolean"
+      description: "Whether emotional contagion shield is protecting the user"
+    human_trust_score: 
+      type: "integer"
+      description: "User's trust in the AI system (0-100)"
+    upcoming_event: 
+      type: "string"
+      description: "Upcoming high-stakes event"
+    resilience_score: 
+      type: "integer"
+      description: "Predicted cognitive resilience score"
+
+# Reward configuration
+reward:
+  positive_rewards:
+    correct_cognitive_estimate: 0.2
+    appropriate_autopilot_usage: 0.5
+    overload_reduction: 0.6
+    proper_task_ordering: 0.5
+    successful_team_routing: 0.6
+    recovery_protection: 0.5
+  
+  negative_rewards:
+    unnecessary_overload: -0.5
+    ignored_fatigue: -0.6
+    excessive_decision_debt: -0.3
+    repeated_useless_actions: -0.5
+    failed_team_assignment: -0.4
+
+# Inference configuration
+inference:
+  entry_point: "inference.py:main"
+  required_env_vars:
+    - API_BASE_URL
+    - API_KEY
+    - MODEL_NAME
+  output_format: "structured_stdout"
+  output_tags: ["[START]", "[STEP]", "[END]"]
+  expected_format: |
+    [START] task=easy env=acie_hado model=gpt-4o-mini
+    [STEP] step=1 action={...} reward=0.2 done=false error=null
+    [END] task=easy success=true steps=2 score=0.7
     fragmentation_index: { type: "int" }
     context_switches: { type: "int" }
     interruptions: { type: "int" }
