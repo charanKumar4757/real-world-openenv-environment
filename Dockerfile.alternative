@@ -1,0 +1,50 @@
+# Fallback Dockerfile with alternative mirrors and retry logic
+FROM python:3.10-slim
+
+# Add retry logic with alternative DNS
+RUN echo "nameserver 8.8.8.8" > /etc/resolv.conf && \
+    echo "nameserver 1.1.1.1" >> /etc/resolv.conf
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PORT=7860
+
+WORKDIR /app
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use multiple mirrors for reliability
+RUN pip install --no-cache-dir \
+    --index-url https://pypi.org/simple \
+    --trusted-host pypi.org \
+    --retries 10 \
+    --timeout 100 \
+    -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create non-root user
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 7860
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:7860 || exit 1
+
+# Run the FastAPI application
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]
