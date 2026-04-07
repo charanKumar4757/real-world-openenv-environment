@@ -3,14 +3,17 @@ name = "real-world-openenv-environment"
 version = "0.1.0"
 description = "OpenEnv-based AI environment with multiple tasks, graders, and inference pipeline"
 readme = "README.md"
-requires-python = ">=3.9"
-
+requires-python = ">=3.10"
 dependencies = [
     "fastapi",
     "uvicorn",
     "pydantic",
-    "openai"
+    "openai",
+    "openenv-core>=0.2.0"
 ]
+
+[project.scripts]
+server = "server.app:app"
 
 [build-system]
 requires = ["setuptools>=61.0"]

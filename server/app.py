@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-import os
 from app.env import CognitiveEnv
 
 app = FastAPI()

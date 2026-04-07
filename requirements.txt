@@ -2,3 +2,4 @@ pydantic
 openai
 fastapi
 uvicorn[standard]
+openenv-core>=0.2.0
