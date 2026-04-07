@@ -9,21 +9,32 @@ MAX_STEPS = 10
 
 
 def build_client():
-    api_base_url = os.getenv("API_BASE_URL")
-    api_key = os.getenv("API_KEY")
-    model_name = os.getenv("MODEL_NAME")
+    api_base = os.environ.get("API_BASE_URL")
+    api_key = os.environ.get("API_KEY")
+    model_name = os.environ.get("MODEL_NAME")
 
-    if not api_base_url or not api_key or not model_name:
-        raise RuntimeError(
-            "Missing API_BASE_URL, API_KEY, or MODEL_NAME. "
-            "These are required only when running inference.py."
+    if not api_base:
+        print("[ERROR] API_BASE_URL is missing")
+        return None, None
+
+    if not api_key:
+        print("[ERROR] API_KEY is missing")
+        return None, None
+
+    if not model_name:
+        print("[ERROR] MODEL_NAME is missing")
+        return None, None
+
+    try:
+        client = OpenAI(
+            base_url=api_base,
+            api_key=api_key,
         )
-
-    client = OpenAI(
-        api_key=api_key,
-        base_url=api_base_url
-    )
-    return client, model_name
+        print(f"[INFO] Client created successfully with model: {model_name}")
+        return client, model_name
+    except Exception as e:
+        print(f"[ERROR] build_client failed: {e}")
+        return None, None
 
 
 def has_action(action_history, name):
@@ -616,17 +627,27 @@ def run_task(client, model_name, env, task_level):
 
 
 def main():
-    client, model_name = build_client()
-    env = CognitiveEnv()
+    try:
+        client, model_name = build_client()
 
-    total_scores = {}
+        if client is None or model_name is None:
+            print("[FATAL] Missing configuration. inference.py cannot continue.")
+            return
 
-    for task_level in ["easy", "medium", "hard"]:
-        score = run_task(client, model_name, env, task_level)
-        total_scores[task_level] = score
+        env = CognitiveEnv()
 
-    avg_score = sum(total_scores.values()) / len(total_scores)
-    print(f"\n[SUMMARY] average_score={avg_score:.2f}")
+        total_scores = {}
+
+        for task_level in ["easy", "medium", "hard"]:
+            score = run_task(client, model_name, env, task_level)
+            total_scores[task_level] = score
+
+        avg_score = sum(total_scores.values()) / len(total_scores)
+        print(f"\n[SUMMARY] average_score={avg_score:.2f}")
+
+    except Exception as e:
+        print(f"[FATAL] main() failed: {e}")
+        return
 
 
 if __name__ == "__main__":
