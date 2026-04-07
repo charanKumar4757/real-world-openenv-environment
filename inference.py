@@ -9,16 +9,16 @@ MAX_STEPS = 10
 
 
 def build_client():
-    api_base_url = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
-    model_name = os.getenv("MODEL_NAME", "gpt-4o-mini")
-    hf_token = os.getenv("HF_TOKEN")
+    api_base_url = os.getenv("API_BASE_URL")
+    api_key = os.getenv("API_KEY")
+    model_name = os.getenv("MODEL_NAME")
 
-    if not hf_token:
-        raise ValueError("HF_TOKEN is required but not set in environment variables")
+    if not api_base_url or not api_key or not model_name:
+        raise ValueError("API_BASE_URL, API_KEY, and MODEL_NAME are required")
 
     client = OpenAI(
-        base_url=api_base_url,
-        api_key=hf_token
+        api_key=api_key,
+        base_url=api_base_url
     )
     return client, model_name
 
@@ -413,13 +413,6 @@ def fallback_policy(task_level, state, action_history):
 
 
 def ask_model_for_action(client, model_name, task_level, state, action_history):
-    planned = enforce_task_plan(task_level, state, action_history)
-
-    # Prefer deterministic action plan first
-    if planned and planned.get("action_type") != "final_answer":
-        return planned
-
-    # Only ask model when plan reaches endgame
     prompt = build_prompt(task_level, state)
 
     try:
@@ -429,19 +422,19 @@ def ask_model_for_action(client, model_name, task_level, state, action_history):
                 {"role": "system", "content": "You are a precise environment agent."},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.1
+            temperature=0
         )
 
         content = response.choices[0].message.content.strip()
         action = json.loads(content)
 
-        if not isinstance(action, dict) or "action_type" not in action:
-            raise ValueError("Missing action_type")
-
-        return action
-
+        if isinstance(action, dict) and "action_type" in action:
+            return validate_action(task_level, action, state, action_history)
     except Exception:
-        return fallback_policy(task_level, state, action_history)
+        pass
+
+    planned = enforce_task_plan(task_level, state, action_history)
+    return planned if planned else fallback_policy(task_level, state, action_history)
 
 
 def prevent_repeated_action(action, action_history, state, task_level):
@@ -536,7 +529,7 @@ def run_task(client, model_name, env, task_level):
     print(f"[START] task={task_level} env=acie_hado model={model_name}")
 
     while not done and step < MAX_STEPS:
-        action = scripted_action(task_level, state, action_history, step)
+        action = ask_model_for_action(client, model_name, task_level, state, action_history)
         if is_task_complete(task_level, state, action_history):
             action = {"action_type": "final_answer", "target_task_id": None, "target_user": None}
         if action.get("action_type") == "final_answer" and not is_task_complete(task_level, state, action_history):
