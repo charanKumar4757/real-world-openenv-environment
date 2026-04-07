@@ -36,14 +36,14 @@ def root():
     return {"status": "ok", "message": "ACIE-HADO environment is running"}
 
 @app.post("/reset")
-def reset_env(req: ResetRequest):
+def reset_env(task_level: str = "easy"):
     """Reset environment and return initial observation."""
     try:
-        obs = env.reset(task_level=req.task_level)
+        obs = env.reset(task_level=task_level)
         return {
             "status": "ok",
             "observation": obs,
-            "task_level": req.task_level
+            "task_level": task_level
         }
     except Exception as e:
         return {
@@ -69,13 +69,17 @@ def get_state():
         }
 
 @app.post("/step")
-def step_env(req: StepRequest):
+def step_env(
+    action_type: str,
+    target_task_id: Optional[str] = None,
+    target_user: Optional[str] = None
+):
     """Take a step in the environment with the given action."""
     try:
         action_dict = {
-            "action_type": req.action_type,
-            "target_task_id": req.target_task_id,
-            "target_user": req.target_user
+            "action_type": action_type,
+            "target_task_id": target_task_id,
+            "target_user": target_user
         }
         obs, reward, done, info = env.step(action_dict)
         return {
