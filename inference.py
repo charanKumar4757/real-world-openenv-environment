@@ -6,10 +6,18 @@ MAX_STEPS = 10
 # Mock mode: set INFERENCE_MOCK=1 for fast testing
 MOCK_MODE = os.environ.get("INFERENCE_MOCK") == "1"
 
-if not MOCK_MODE:
+try:
     from openai import OpenAI
     from app.env import CognitiveEnv
     from app.grader import grade_easy, grade_medium, grade_hard
+    _ENV_AVAILABLE = True
+except (ImportError, ModuleNotFoundError) as _import_err:
+    _ENV_AVAILABLE = False
+    OpenAI = None
+    CognitiveEnv = None
+    def grade_easy(*a, **kw): return 0.0
+    def grade_medium(*a, **kw): return 0.0
+    def grade_hard(*a, **kw): return 0.0
 
 
 def print_start(task_name, env_name, model_name):
@@ -35,15 +43,15 @@ def build_client():
     model_name = os.environ.get("MODEL_NAME")
 
     if not api_base:
-        print("[ERROR] API_BASE_URL is missing", flush=True)
+        print("[INFO] API_BASE_URL not set, will use mock mode", flush=True)
         return None, None
 
     if not api_key:
-        print("[ERROR] API_KEY is missing", flush=True)
+        print("[INFO] API_KEY not set, will use mock mode", flush=True)
         return None, None
 
     if not model_name:
-        print("[ERROR] MODEL_NAME is missing", flush=True)
+        print("[INFO] MODEL_NAME not set, will use mock mode", flush=True)
         return None, None
 
     if MOCK_MODE:
@@ -656,7 +664,7 @@ def main():
             client = "mock_client"
             model_name = "mock-model"
 
-        if not MOCK_MODE and not use_mock:
+        if not MOCK_MODE and not use_mock and _ENV_AVAILABLE:
             env = CognitiveEnv()
         
         total_scores = {}
