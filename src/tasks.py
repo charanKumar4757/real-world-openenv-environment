@@ -1,4 +1,4 @@
-from app.models import TaskDef
+from src.models import TaskDef
 
 STUDENT_FATIGUE_TASK = {
     "level": "easy",

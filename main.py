@@ -6,7 +6,7 @@ from pydantic import BaseModel
 import gradio as gr
 from gradio.routes import mount_gradio_app
 
-from app.env import CognitiveEnv
+from src.env import CognitiveEnv
 
 # ============================================
 # FastAPI App Setup

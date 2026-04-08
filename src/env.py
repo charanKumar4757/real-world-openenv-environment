@@ -1,9 +1,9 @@
 import json
 import copy
 from typing import Dict, Any, Tuple
-from app.models import Observation, Action
-from app.tasks import get_task
-from app.reward import calculate_reward
+from src.models import Observation, Action
+from src.tasks import get_task
+from src.reward import calculate_reward
 
 class CognitiveEnv:
     def __init__(self):
