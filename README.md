@@ -155,7 +155,7 @@ The inference script prints structured output that the validator parses:
 [START] task=easy env=acie_hado model=gpt-4o-mini
 [STEP] step=1 action={"action_type":"calculate_cognitive_score"} reward=0.2 done=false error=null
 [STEP] step=2 action={"action_type":"activate_autopilot"} reward=0.5 done=false error=null
-[END] task=easy success=true steps=2 score=0.7
+[END] success=true steps=3 score=0.70 rewards=0.20,0.50,0.10
 ```
 
 ## Architecture

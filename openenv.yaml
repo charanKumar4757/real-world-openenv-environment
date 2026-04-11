@@ -119,14 +119,14 @@ inference:
   entry_point: "inference.py:main"
   required_env_vars:
     - API_BASE_URL
-    - API_KEY
+    - HF_TOKEN
     - MODEL_NAME
   output_format: "structured_stdout"
   output_tags: ["[START]", "[STEP]", "[END]"]
   expected_format: |
-    [START] task=easy env=acie_hado model=gpt-4o-mini
-    [STEP] step=1 action={...} reward=0.2 done=false error=null
-    [END] task=easy success=true steps=2 score=0.7
+    [START] task=easy env=acie_hado model=meta-llama/Llama-3.3-70B-Instruct
+    [STEP] step=1 action={"action_type":"calculate_cognitive_score","target_task_id":null,"target_user":null} reward=0.20 done=false error=null
+    [END] success=true steps=3 score=0.70 rewards=0.20,0.50,0.10
     fragmentation_index: { type: "int" }
     context_switches: { type: "int" }
     interruptions: { type: "int" }
