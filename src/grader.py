@@ -1,6 +1,19 @@
 from typing import Dict, Any, List
 
 
+def clamp_score(score: float) -> float:
+    """
+    CRITICAL: Validator requires score strictly between 0 and 1.
+    0.0 and 1.0 are NOT allowed.
+    """
+    score = float(score)
+    if score <= 0.0:
+        return 0.01
+    if score >= 1.0:
+        return 0.99
+    return score
+
+
 def appears_in_order(action_history: List[str], required_sequence: List[str]) -> bool:
     """Check if required actions appear in order (not necessarily consecutive)."""
     idx = 0
@@ -16,67 +29,61 @@ def repetition_penalty(action_history: List[str]) -> float:
     for i in range(1, len(action_history)):
         if action_history[i] == action_history[i - 1]:
             penalty += 0.1
-    return min(penalty, 0.4)  # cap at 0.4 so it doesn't destroy the score
+    return min(penalty, 0.3)  # cap so it never destroys the score
 
 
 def grade_easy(info: Dict[str, Any], final_state: Dict[str, Any]) -> float:
     """
     Easy task: Student Fatigue Scenario.
     Agent must detect fatigue, use autopilot for low-stakes task, finish efficiently.
-    Target score: 0.6 - 0.9 for a good agent.
     """
     score = 0.0
     action_history = info.get("action_history", [])
 
-    # Core sequence: assess → automate → finish (worth 0.4)
+    # Core sequence check (worth 0.35)
     if appears_in_order(action_history, ["calculate_cognitive_score", "activate_autopilot", "final_answer"]):
-        score += 0.4
+        score += 0.35
 
-    # Individual action bonuses (each worth 0.1)
+    # Individual action bonuses
     if "calculate_cognitive_score" in action_history:
-        score += 0.1  # Agent correctly assessed the situation
-
+        score += 0.10
     if "activate_autopilot" in action_history:
-        score += 0.15  # Agent correctly automated a low-stakes task
-
+        score += 0.15
     if "final_answer" in action_history:
-        score += 0.05  # Agent properly ended the episode
+        score += 0.05
 
-    # Efficiency bonus: finished in 4 steps or fewer
+    # Efficiency bonus
     if len(action_history) <= 4:
-        score += 0.1
+        score += 0.10
 
-    # State health: cognitive score should not be too low at end
+    # State health
     if final_state.get("cognitive_score", 0) >= 35:
-        score += 0.1
+        score += 0.10
 
-    # Penalize if stressful tasks were left behind unhandled
+    # Penalty: stressful tasks left behind
     pending = final_state.get("pending_tasks", [])
-    stressful_left = [t for t in pending if t.get("is_stressful")]
-    if stressful_left:
-        score -= 0.2
+    if [t for t in pending if t.get("is_stressful")]:
+        score -= 0.15
 
-    # Penalize repetitive actions
+    # Penalty: repetitive actions
     score -= repetition_penalty(action_history)
 
-    # Penalize if total cumulative reward was negative (agent made bad choices)
+    # Penalty: negative cumulative reward
     total_reward = info.get("total_reward", 0.0)
     if total_reward < 0:
-        score -= 0.2
+        score -= 0.15
 
-    return max(0.0, min(1.0, round(score, 2)))
+    # CRITICAL: clamp strictly between 0 and 1 (not 0.0, not 1.0)
+    return clamp_score(score)
 
 
 def grade_medium(info: Dict[str, Any], final_state: Dict[str, Any]) -> float:
     """
-    Medium task: Work Queue Optimization.
-    Agent must handle emotional spillover, reorder tasks, and automate low-stakes tasks.
-    Target score: 0.5 - 0.85 for a good agent.
+    Medium task: Work Queue Optimization with emotional spillover.
     """
     score = 0.0
     action_history = info.get("action_history", [])
 
-    # Ideal sequence (worth 0.35)
     ideal = [
         "forecast_regret",
         "trigger_recovery_mode",
@@ -85,56 +92,49 @@ def grade_medium(info: Dict[str, Any], final_state: Dict[str, Any]) -> float:
         "activate_autopilot",
         "final_answer"
     ]
+
     if appears_in_order(action_history, ideal):
-        score += 0.35
+        score += 0.30
 
-    # Individual action bonuses
+    # Individual bonuses
     if "forecast_regret" in action_history:
-        score += 0.05  # Agent looked ahead before acting
-
+        score += 0.05
     if "trigger_recovery_mode" in action_history:
-        score += 0.1   # Agent handled the emotional stress correctly
-
+        score += 0.10
     if "isolate_stressful_task" in action_history:
-        score += 0.1   # Agent protected user from spillover
-
+        score += 0.10
     if "reorder_tasks" in action_history:
-        score += 0.1   # Agent optimized the task queue
-
+        score += 0.10
     if "activate_autopilot" in action_history:
-        score += 0.1   # Agent automated low-stakes work
-
+        score += 0.10
     if "final_answer" in action_history:
-        score += 0.05  # Clean episode end
+        score += 0.05
 
-    # State quality checks
+    # State checks
     if final_state.get("cognitive_score", 0) >= 20:
-        score += 0.05  # Cognitive score survived
-
+        score += 0.05
     if final_state.get("emotional_state") in ["neutral", "guarded"]:
-        score += 0.05  # Emotional state improved
+        score += 0.05
 
-    # FIXED: Correct walrus operator usage (was broken before)
+    # Penalties
     total_reward = info.get("total_reward", 0.0)
     if total_reward < 0:
-        score -= 0.1
+        score -= 0.10
 
-    # Penalize repetition
     score -= repetition_penalty(action_history)
 
-    return max(0.0, min(1.0, round(score, 2)))
+    # CRITICAL: clamp strictly between 0 and 1
+    return clamp_score(score)
 
 
 def grade_hard(info: Dict[str, Any], final_state: Dict[str, Any]) -> float:
     """
     Hard task: Team Routing Under Crisis.
-    Agent must predict recovery, shield emotions, redistribute work, and preserve trust.
-    Target score: 0.45 - 0.80 for a good agent.
+    Agent must predict recovery, shield emotions, redistribute work, preserve trust.
     """
     score = 0.0
     action_history = info.get("action_history", [])
 
-    # Ideal sequence (worth 0.30)
     ideal = [
         "forecast_regret",
         "predict_recovery",
@@ -144,49 +144,40 @@ def grade_hard(info: Dict[str, Any], final_state: Dict[str, Any]) -> float:
         "redistribute_team_load",
         "final_answer"
     ]
-    if appears_in_order(action_history, ideal):
-        score += 0.30
 
-    # Individual action bonuses
+    if appears_in_order(action_history, ideal):
+        score += 0.25
+
+    # Individual bonuses
     if "forecast_regret" in action_history:
         score += 0.05
-
     if "predict_recovery" in action_history:
-        score += 0.08  # Critical for the hard scenario
-
+        score += 0.08
     if "trigger_recovery_mode" in action_history:
         score += 0.08
-
     if "isolate_stressful_task" in action_history:
         score += 0.08
-
     if "activate_autopilot" in action_history:
         score += 0.08
-
     if "redistribute_team_load" in action_history:
-        score += 0.10  # Key action for the hard task
-
+        score += 0.10
     if "final_answer" in action_history:
         score += 0.05
 
-    # State quality checks
+    # State checks
     if final_state.get("cognitive_score", 0) >= 20:
         score += 0.05
-
-    # Trust must be preserved
     if final_state.get("human_trust_score", 0) >= 40:
         score += 0.05
-
-    # Decision debt should not be excessive
     if final_state.get("decision_debt", 10) <= 3:
         score += 0.04
 
-    # FIXED: Correct check (was broken walrus operator before)
+    # Penalties
     total_reward = info.get("total_reward", 0.0)
     if total_reward < 0:
-        score -= 0.1
+        score -= 0.10
 
-    # Penalize repetition
     score -= repetition_penalty(action_history)
 
-    return max(0.0, min(1.0, round(score, 2)))
+    # CRITICAL: clamp strictly between 0 and 1
+    return clamp_score(score)
