@@ -1,8 +1,8 @@
-openai==2.7.2
-pydantic==2.11.7
-PyYAML==6.0.2
-fastapi==0.135.3
-uvicorn==0.44.0
-openenv-core==0.2.3
-gradio
+openai>=1.0.0
+pydantic>=2.0.0
+PyYAML>=6.0
+fastapi>=0.100.0
+uvicorn>=0.20.0
+openenv-core>=0.2.0
+gradio>=4.0.0
 
