@@ -1,17 +1,15 @@
 """
-grader.py — Task graders for ACIE-HADO environment
-====================================================
-FIXED:
-- Broken walrus operator (was: if x := y < 0, now: x = y; if x < 0)
-- Scores now strictly between 0.01 and 0.99 (not 0.0, not 1.0)
-- Penalty cap so scores never go negative and hit 0.0
+grader.py — Real outcome graders for ACIE-HADO
+================================================
+Phase 3 fix: graders now check ACTUAL state changes (did cognitive score
+improve? were stressful tasks actually removed?) not just action name presence.
+All scores strictly between 0.01 and 0.99.
 """
-
 from typing import Dict, Any, List
 
 
 def clamp_score(score: float) -> float:
-    """Score must be strictly between 0 and 1. 0.0 and 1.0 are rejected by validator."""
+    """Score must be strictly between 0 and 1. 0.0 and 1.0 are rejected."""
     score = float(score)
     if score <= 0.0:
         return 0.01
@@ -21,7 +19,6 @@ def clamp_score(score: float) -> float:
 
 
 def appears_in_order(action_history: List[str], required_sequence: List[str]) -> bool:
-    """Check if required actions appear in the correct order (not necessarily adjacent)."""
     idx = 0
     for action in action_history:
         if idx < len(required_sequence) and action == required_sequence[idx]:
@@ -30,7 +27,6 @@ def appears_in_order(action_history: List[str], required_sequence: List[str]) ->
 
 
 def repetition_penalty(action_history: List[str]) -> float:
-    """Penalize consecutive repeated actions. Capped at 0.3 so it never destroys a score."""
     penalty = 0.0
     for i in range(1, len(action_history)):
         if action_history[i] == action_history[i - 1]:
@@ -40,151 +36,210 @@ def repetition_penalty(action_history: List[str]) -> float:
 
 def grade_easy(info: Dict[str, Any], final_state: Dict[str, Any]) -> float:
     """
-    Easy Task: Student Fatigue Scenario
-    Goal: detect fatigue → automate one low-stakes task → finish efficiently
-    Good agent scores: 0.65 - 0.90
+    Easy Task: Student Fatigue Scenario.
+    REAL OUTCOMES checked:
+    - Did cognitive score stay above 35? (was 45 at start)
+    - Was the low-stakes task actually automated? (low_stakes_automated > 0)
+    - Did the episode end cleanly? (final_answer used)
+    - Were no stressful tasks left unhandled?
     """
     score = 0.0
     action_history = info.get("action_history", [])
 
-    # Correct sequence (worth 0.35)
-    if appears_in_order(action_history, ["calculate_cognitive_score", "activate_autopilot", "final_answer"]):
-        score += 0.35
+    # ── REAL OUTCOME CHECKS (Phase 3 requirement) ─────────────────
 
-    # Individual action bonuses
-    if "calculate_cognitive_score" in action_history:
-        score += 0.10   # agent assessed situation first
-    if "activate_autopilot" in action_history:
-        score += 0.15   # agent automated low-stakes task
+    # 1. Cognitive score actually maintained or improved
+    final_cog = info.get("final_cognitive_score", final_state.get("cognitive_score", 0))
+    initial_cog = info.get("initial_cognitive_score", 45)
+    if final_cog >= 40:
+        score += 0.20   # score survived — real outcome ✅
+    elif final_cog >= 30:
+        score += 0.10   # partial credit
+
+    # 2. Low-stakes task was actually automated (not just action name present)
+    if info.get("low_stakes_automated", 0) > 0:
+        score += 0.20   # actual automation happened — real outcome ✅
+    elif "activate_autopilot" in action_history:
+        score += 0.05   # action taken but env may not have found a task
+
+    # 3. No stressful tasks were left pending (real state check)
+    pending = final_state.get("pending_tasks", [])
+    stressful_left = [t for t in pending if t.get("is_stressful")]
+    if not stressful_left:
+        score += 0.15   # real outcome: no dangerous tasks unhandled ✅
+
+    # 4. Episode ended properly
     if "final_answer" in action_history:
-        score += 0.05   # clean episode end
+        score += 0.10
 
-    # Efficiency: finished in 4 steps or fewer
+    # 5. Sequence bonus (action quality)
+    if appears_in_order(action_history, ["calculate_cognitive_score", "activate_autopilot", "final_answer"]):
+        score += 0.15
+
+    # 6. Efficiency
     if len(action_history) <= 4:
         score += 0.10
 
-    # State health: cognitive score survived
-    if final_state.get("cognitive_score", 0) >= 35:
-        score += 0.10
+    # ── PENALTIES ─────────────────────────────────────────────────
 
-    # Penalty: stressful tasks left unhandled
-    pending = final_state.get("pending_tasks", [])
-    if any(t.get("is_stressful") for t in pending):
-        score -= 0.15
+    # Trust must not be destroyed
+    if info.get("human_trust_score", 80) < 40:
+        score -= 0.10
 
-    # Penalty: repetitive useless actions
-    score -= repetition_penalty(action_history)
-
-    # Penalty: negative total reward means bad choices
-    total_reward = info.get("total_reward", 0.0)  # FIXED: was broken walrus operator
+    # Negative total reward = consistently bad decisions
+    total_reward = info.get("total_reward", 0.0)
     if total_reward < 0:
         score -= 0.15
 
-    return clamp_score(score)  # FIXED: strictly between 0.01 and 0.99
+    # Repetition penalty
+    score -= repetition_penalty(action_history)
+
+    return clamp_score(score)
 
 
 def grade_medium(info: Dict[str, Any], final_state: Dict[str, Any]) -> float:
     """
-    Medium Task: Work Queue Optimization with Emotional Spillover
-    Goal: look ahead → handle stress → reorder → automate → finish
-    Good agent scores: 0.50 - 0.85
+    Medium Task: Work Queue Optimization with Emotional Spillover.
+    REAL OUTCOMES checked:
+    - Was emotional state actually improved? (stressed → neutral/guarded)
+    - Were stressful tasks actually resolved?
+    - Did cognitive score survive above 20?
+    - Was task queue actually reordered?
     """
     score = 0.0
     action_history = info.get("action_history", [])
 
-    # Ideal sequence (worth 0.30)
+    # ── REAL OUTCOME CHECKS ───────────────────────────────────────
+
+    # 1. Emotional state actually improved (real state check)
+    final_emotion = info.get("emotional_state", final_state.get("emotional_state", "stressed"))
+    if final_emotion in ["neutral", "guarded"]:
+        score += 0.20   # real outcome: stress resolved ✅
+    elif final_emotion == "stressed":
+        score += 0.05   # partial: still stressed but not worse
+
+    # 2. Stressful tasks actually removed from queue
+    resolved = info.get("stressful_tasks_resolved", 0)
+    if resolved > 0:
+        score += 0.20   # real outcome: stressor handled ✅
+    pending = final_state.get("pending_tasks", [])
+    if not [t for t in pending if t.get("is_stressful")]:
+        score += 0.10   # double-check: queue confirms no stressful tasks
+
+    # 3. Cognitive score survived
+    final_cog = info.get("final_cognitive_score", final_state.get("cognitive_score", 0))
+    if final_cog >= 25:
+        score += 0.15
+    elif final_cog >= 15:
+        score += 0.05
+
+    # 4. Low-stakes work was automated
+    if info.get("low_stakes_automated", 0) > 0:
+        score += 0.10
+
+    # 5. Action sequence quality
     ideal = [
-        "forecast_regret",
-        "trigger_recovery_mode",
-        "isolate_stressful_task",
-        "reorder_tasks",
-        "activate_autopilot",
-        "final_answer"
+        "forecast_regret", "trigger_recovery_mode", "isolate_stressful_task",
+        "reorder_tasks", "activate_autopilot", "final_answer"
     ]
     if appears_in_order(action_history, ideal):
-        score += 0.30
+        score += 0.15
+    else:
+        # Partial credit for using key actions
+        for act in ["trigger_recovery_mode", "isolate_stressful_task", "reorder_tasks"]:
+            if act in action_history:
+                score += 0.03
 
-    # Individual action bonuses
-    if "forecast_regret" in action_history:
-        score += 0.05
-    if "trigger_recovery_mode" in action_history:
-        score += 0.10
-    if "isolate_stressful_task" in action_history:
-        score += 0.10
-    if "reorder_tasks" in action_history:
-        score += 0.10
-    if "activate_autopilot" in action_history:
-        score += 0.10
-    if "final_answer" in action_history:
-        score += 0.05
+    # ── PENALTIES ─────────────────────────────────────────────────
 
-    # State quality
-    if final_state.get("cognitive_score", 0) >= 20:
-        score += 0.05
-    if final_state.get("emotional_state") in ["neutral", "guarded"]:
-        score += 0.05
-
-    # Penalties
-    total_reward = info.get("total_reward", 0.0)  # FIXED: was broken walrus operator
+    total_reward = info.get("total_reward", 0.0)
     if total_reward < 0:
+        score -= 0.10
+
+    if info.get("human_trust_score", 80) < 40:
         score -= 0.10
 
     score -= repetition_penalty(action_history)
 
-    return clamp_score(score)  # FIXED: strictly between 0.01 and 0.99
+    return clamp_score(score)
 
 
 def grade_hard(info: Dict[str, Any], final_state: Dict[str, Any]) -> float:
     """
-    Hard Task: Team Routing Under Crisis
-    Goal: predict recovery → stabilize → isolate stressor → delegate → finish
-    Good agent scores: 0.45 - 0.80
+    Hard Task: Team Routing Under Crisis.
+    REAL OUTCOMES checked:
+    - Was cognitive score protected above 20 despite starting at 18?
+    - Were stressful tasks actually delegated or resolved?
+    - Was human trust preserved above 40?
+    - Was decision debt kept under control?
+    - Was the episode finished with key tasks handled?
     """
     score = 0.0
     action_history = info.get("action_history", [])
 
-    # Ideal sequence (worth 0.25)
+    # ── REAL OUTCOME CHECKS ───────────────────────────────────────
+
+    # 1. Cognitive score actually recovered (started at 18 — should go up)
+    final_cog = info.get("final_cognitive_score", final_state.get("cognitive_score", 0))
+    initial_cog = info.get("initial_cognitive_score", 18)
+    cog_change = final_cog - initial_cog
+    if cog_change > 10:
+        score += 0.20   # real outcome: meaningful recovery ✅
+    elif cog_change > 0:
+        score += 0.10   # some improvement
+    elif final_cog >= 20:
+        score += 0.05   # at least didn't crash
+
+    # 2. Stressful tasks actually resolved (delegated or isolated)
+    resolved = info.get("stressful_tasks_resolved", 0)
+    if resolved >= 1:
+        score += 0.20   # real outcome: stressor removed ✅
+    pending = final_state.get("pending_tasks", [])
+    stressful_left = [t for t in pending if t.get("is_stressful")]
+    if not stressful_left:
+        score += 0.10
+
+    # 3. Human trust preserved
+    trust = info.get("human_trust_score", final_state.get("human_trust_score", 80))
+    if trust >= 50:
+        score += 0.10   # trust maintained ✅
+    elif trust >= 40:
+        score += 0.05
+
+    # 4. Decision debt controlled
+    debt = info.get("decision_debt", final_state.get("decision_debt", 10))
+    if debt <= 3:
+        score += 0.08
+
+    # 5. Key actions used
+    if "redistribute_team_load" in action_history:
+        score += 0.08   # delegation happened
+    if "predict_recovery" in action_history:
+        score += 0.05
+    if "trigger_recovery_mode" in action_history:
+        score += 0.05
+
+    # 6. Full sequence bonus
     ideal = [
-        "forecast_regret",
-        "predict_recovery",
-        "trigger_recovery_mode",
-        "isolate_stressful_task",
-        "activate_autopilot",
-        "redistribute_team_load",
-        "final_answer"
+        "forecast_regret", "predict_recovery", "trigger_recovery_mode",
+        "isolate_stressful_task", "activate_autopilot", "redistribute_team_load", "final_answer"
     ]
     if appears_in_order(action_history, ideal):
-        score += 0.25
+        score += 0.10
 
-    # Individual action bonuses
-    if "forecast_regret" in action_history:
-        score += 0.05
-    if "predict_recovery" in action_history:
-        score += 0.08   # critical for hard task
-    if "trigger_recovery_mode" in action_history:
-        score += 0.08
-    if "isolate_stressful_task" in action_history:
-        score += 0.08
-    if "activate_autopilot" in action_history:
-        score += 0.08
-    if "redistribute_team_load" in action_history:
-        score += 0.10   # key action for hard task
-    if "final_answer" in action_history:
-        score += 0.05
+    # ── PENALTIES ─────────────────────────────────────────────────
 
-    # State quality
-    if final_state.get("cognitive_score", 0) >= 20:
-        score += 0.05
-    if final_state.get("human_trust_score", 0) >= 40:
-        score += 0.05   # trust must be preserved
-    if final_state.get("decision_debt", 10) <= 3:
-        score += 0.04   # debt under control
+    # Low-stakes tasks left unautomated when agent had resources
+    if info.get("low_stakes_automated", 0) == 0 and final_cog > 40:
+        score -= 0.05
 
-    # Penalties
-    total_reward = info.get("total_reward", 0.0)  # FIXED: was broken walrus operator
+    total_reward = info.get("total_reward", 0.0)
     if total_reward < 0:
         score -= 0.10
 
+    if trust < 30:
+        score -= 0.10   # severe trust damage
+
     score -= repetition_penalty(action_history)
 
-    return clamp_score(score)  # FIXED: strictly between 0.01 and 0.99
+    return clamp_score(score)
