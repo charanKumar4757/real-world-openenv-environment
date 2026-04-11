@@ -1,337 +1,205 @@
-﻿import os
-import json
+﻿"""
+inference.py — Baseline inference script for ACIE-HADO OpenEnv environment.
 
+MANDATORY FORMAT (do not change):
+    [START] task=<task_name> env=<benchmark> model=<model_name>
+    [STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
+    [END]   success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
+
+Environment variables:
+    API_BASE_URL   - LLM API endpoint (default: HuggingFace router)
+    MODEL_NAME     - Model to use (default: Qwen2.5-72B-Instruct)
+    HF_TOKEN       - HuggingFace API key (required)
+"""
+
+import os
+import json
+import sys
+from openai import OpenAI
+from src.env import CognitiveEnv
+from src.grader import grade_easy, grade_medium, grade_hard
+
+# ── Config ────────────────────────────────────────────────────────────────────
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN")
+BENCHMARK = "acie-hado"
 MAX_STEPS = 10
 
-# ─────────────────────────────────────────────
-# Safe import of app package
-# ─────────────────────────────────────────────
-try:
-    from openai import OpenAI
-    from app.env import CognitiveEnv
-    from app.grader import grade_easy, grade_medium, grade_hard
-    _ENV_AVAILABLE = True
-except (ImportError, ModuleNotFoundError):
-    _ENV_AVAILABLE = False
-    CognitiveEnv = None
-    def grade_easy(*a, **kw): return 0.5
-    def grade_medium(*a, **kw): return 0.5
-    def grade_hard(*a, **kw): return 0.5
+# ── Client ────────────────────────────────────────────────────────────────────
+client = OpenAI(
+    base_url=API_BASE_URL,
+    api_key=HF_TOKEN or "no-key"
+)
+
+# ── System prompt ─────────────────────────────────────────────────────────────
+SYSTEM_PROMPT = """You are an AI agent managing human cognitive resources in a simulation environment.
+
+ENVIRONMENT: ACIE-HADO (Adaptive Cognitive Intelligence Environment for Human-AI Decision Optimization)
+
+YOUR GOAL: Help a human user manage their cognitive load by taking actions that protect their mental energy,
+reduce emotional spillover, automate trivial decisions, and route work to available team members.
+
+OBSERVATION: Each step you receive a JSON observation with:
+- cognitive_score (0-100): User's mental energy. Below 30 = danger zone.
+- fatigue_level: low / medium / high / overwhelmed
+- emotional_state: neutral / guarded / stressed / overwhelmed
+- spillover_level (0-100): Emotional contamination from stressful tasks
+- pending_tasks: List of tasks with task_id, urgency, cognitive_cost, is_stressful, is_low_stakes
+- team_scores: Dict of team member names and their cognitive scores
+- decision_debt: Number of deferred decisions
+- situation_summary: PLAIN ENGLISH explanation of the situation — READ THIS CAREFULLY
+
+AVAILABLE ACTIONS (respond with exactly one):
+- calculate_cognitive_score: Assess current cognitive state (small cost)
+- predict_recovery: Estimate when user will recover (small cost)
+- activate_autopilot: Automatically handle a low-stakes task (set target_task_id)
+- isolate_stressful_task: Remove a stressful task from active queue to stop spillover (set target_task_id)
+- trigger_recovery_mode: Emergency recovery — restores score and clears stress
+- reorder_tasks: Sort tasks by urgency/cost ratio for optimal order
+- execute_task: Directly complete a task (ONLY for non-stressful tasks when score > 35, set target_task_id)
+- delay_task: Postpone a task to save cognitive resources (set target_task_id)
+- redistribute_team_load: Assign heavy/stressful tasks to fresh team members
+- review_debt: Clear deferred decisions (only when score > 35)
+- provide_transparency: Explain AI actions to user (builds trust)
+- reserve_recovery_window: Block time for recovery before a high-stakes event
+- forecast_regret: Estimate risk of deferring current tasks
+- final_answer: End the episode (call only when tasks are handled or you are done)
+
+STRATEGY RULES:
+1. ALWAYS read situation_summary — it tells you exactly what to do.
+2. If cognitive_score < 30, use trigger_recovery_mode or redistribute_team_load FIRST.
+3. If spillover_level > 30, use isolate_stressful_task FIRST.
+4. Use activate_autopilot for tasks where is_low_stakes=true.
+5. NEVER use execute_task when cognitive_score < 30 — it will drain the user further.
+6. Use redistribute_team_load when team members are available and score > 50.
+7. Call final_answer when all critical tasks are handled.
+
+RESPONSE FORMAT: Respond with ONLY a JSON object, no other text:
+{
+  "action_type": "<action_name>",
+  "target_task_id": "<task_id or null>",
+  "target_user": "<team member name or null>",
+  "reasoning": "<one sentence explanation>"
+}"""
 
 
-# ─────────────────────────────────────────────
-# Print helpers — exact format the validator expects
-# ─────────────────────────────────────────────
-def print_start(task_name, env_name, model_name):
-    print(
-        f"[START] task={task_name} env={env_name} model={model_name}",
-        flush=True
-    )
-
-
-def print_step(step_num, action, reward, done, error=None):
-    action_json = json.dumps(action, ensure_ascii=False)
-    error_text  = "null" if error is None else str(error)
-    done_text   = "true" if done else "false"
-    reward_fmt  = f"{reward:.2f}"
-    print(
-        f"[STEP] step={step_num} action={action_json} "
-        f"reward={reward_fmt} done={done_text} error={error_text}",
-        flush=True
-    )
-
-
-def print_end(task_name, success, steps, score, rewards):
-    success_text = "true" if success else "false"
-    # score MUST be between 0.0 and 1.0
-    score_clamped = min(1.0, max(0.0, score))
-    score_fmt     = f"{score_clamped:.2f}"
-    rewards_str   = ",".join(rewards)
-    print(
-        f"[END] task={task_name} success={success_text} "
-        f"steps={steps} score={score_fmt} rewards={rewards_str}",
-        flush=True
-    )
-
-
-
-
-# ─────────────────────────────────────────────
-# Build the OpenAI client using validator-injected variables
-# ─────────────────────────────────────────────
-def build_client():
-    # The validator injects EXACTLY these two variable names:
-    api_base   = os.environ.get("API_BASE_URL")
-    api_key    = os.environ.get("API_KEY")       # validator uses API_KEY
-    model_name = os.environ.get("MODEL_NAME")
-
-    # If any credential is missing, return None → will use mock mode
-    if not api_base:
-        print("[INFO] API_BASE_URL not provided — will run mock mode", flush=True)
-        return None, None
-
-    if not api_key:
-        print("[INFO] API_KEY not provided — will run mock mode", flush=True)
-        return None, None
-
-    if not model_name:
-        # Use a safe default model name if not set
-        model_name = "gpt-4o-mini"
-        print(f"[INFO] MODEL_NAME not set — defaulting to {model_name}", flush=True)
-
-    # Create the OpenAI client pointed at the validator's LiteLLM proxy
-    try:
-        client = OpenAI(
-            base_url=api_base,   # validator's proxy URL
-            api_key=api_key,     # validator's key
-        )
-        print(f"[INFO] Connected to proxy: {api_base} | model: {model_name}", flush=True)
-        return client, model_name
-
-    except Exception as e:
-        print(f"[INFO] Could not create client: {e} — falling back to mock", flush=True)
-        return None, None
-
-
-
-
-# ─────────────────────────────────────────────
-# Ask the LLM for one action
-# ─────────────────────────────────────────────
-def ask_llm(client, model_name, task_level, state):
-    prompt = f"""You are a cognitive load management agent.
-
-Task level: {task_level}
-Current state: {json.dumps(state, indent=2)}
-
-Choose exactly ONE action from this list:
-- forecast_regret
-- calculate_cognitive_score
-- predict_recovery
-- trigger_recovery_mode
-- isolate_stressful_task
-- reorder_tasks
-- activate_autopilot
-- redistribute_team_load
-- final_answer
-
-Reply with ONLY a JSON object, nothing else. Example:
-{{"action_type": "calculate_cognitive_score", "target_task_id": null, "target_user": null}}
-"""
+def get_action_from_llm(observation: dict, step_num: int) -> dict:
+    """Ask the LLM what action to take given the current observation."""
+    obs_text = json.dumps(observation, indent=2)
+    user_msg = f"Step {step_num}. Current observation:\n{obs_text}\n\nWhat action do you take? Respond with JSON only."
 
     try:
         response = client.chat.completions.create(
-            model=model_name,
+            model=MODEL_NAME,
+            max_tokens=300,
+            temperature=0.1,
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a precise RL environment agent. Reply only with JSON."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            temperature=0,
-            max_tokens=100
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg}
+            ]
         )
         content = response.choices[0].message.content.strip()
-
-        # Remove markdown code blocks if the LLM added them
-        content = content.replace("```json", "").replace("```", "").strip()
-
-        action = json.loads(content)
-
-        # Make sure it has the required fields
-        if "action_type" not in action:
-            raise ValueError("Missing action_type")
-
-        return action
-
-    except Exception as e:
-        print(f"[INFO] LLM call failed: {e} — using fallback action", flush=True)
+        # Strip markdown code fences if present
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+        action = json.loads(content.strip())
         return {
-            "action_type": "final_answer",
-            "target_task_id": None,
-            "target_user": None
+            "action_type": action.get("action_type", "calculate_cognitive_score"),
+            "target_task_id": action.get("target_task_id"),
+            "target_user": action.get("target_user"),
         }
-
-
-
-
-# ─────────────────────────────────────────────
-# Run one full task using the REAL environment + LLM
-# ─────────────────────────────────────────────
-def run_real_task(client, model_name, env, task_level):
-    state = env.reset(task_level)
-    done  = False
-    step  = 0
-    info  = {}
-    reward_history = []
-    score   = 0.0
-    success = False
-
-    print_start(task_level, "acie_hado", model_name)
-
-    try:
-        while not done and step < MAX_STEPS:
-
-            # Ask LLM what action to take
-            action = ask_llm(client, model_name, task_level, state)
-
-            # Execute the action in the environment
-            try:
-                next_state, reward, done, info = env.step(action)
-                error = None
-            except Exception as e:
-                next_state = state
-                reward = 0.0
-                done   = True
-                error  = str(e)
-
-            step += 1
-            reward_history.append(f"{reward:.2f}")
-            print_step(step, action, reward, done, error)
-            state = next_state
-
-        # Grade the result
-        if _ENV_AVAILABLE:
-            score = grade_task(task_level, info, state)
-        score   = min(1.0, max(0.0, score))
-        success = score >= 0.4
-
     except Exception as e:
-        print_step(step + 1, {"action_type": "exception"}, 0.0, True, str(e))
-
-    print_end(task_level, success, step, score, reward_history)
-    return score
+        # Fallback to safe default action
+        return {"action_type": "calculate_cognitive_score", "target_task_id": None, "target_user": None}
 
 
-# ─────────────────────────────────────────────
-# Run one task in MOCK mode (no real LLM needed)
-# ─────────────────────────────────────────────
-def run_mock_task(task_level, env_name, model_name):
-    print_start(task_level, env_name, model_name)
-
-    mock_actions = [
-        {"action_type": "forecast_regret",           "target_task_id": None, "target_user": None},
-        {"action_type": "calculate_cognitive_score",  "target_task_id": None, "target_user": None},
-        {"action_type": "activate_autopilot",         "target_task_id": "lunch_order", "target_user": None},
-        {"action_type": "final_answer",               "target_task_id": None, "target_user": None},
-    ]
-
-    # Each reward between 0 and 1, total score must also be 0–1
-    mock_rewards = [0.20, 0.20, 0.50, 0.10]
-
-    reward_history = []
-    for i, action in enumerate(mock_actions, start=1):
-        reward = mock_rewards[i - 1]
-        done   = (i == len(mock_actions))
-        print_step(i, action, reward, done, None)
-        reward_history.append(f"{reward:.2f}")
-
-    score = 1.00   # within [0, 1]
-    print_end(task_level, True, len(mock_actions), score, reward_history)
-    return score
-
-
-
-
-# ─────────────────────────────────────────────
-# Grade helper
-# ─────────────────────────────────────────────
-def grade_task(task_level, info, final_state):
+def get_grade(task_level: str, info: dict, final_obs: dict) -> float:
     if task_level == "easy":
-        return grade_easy(info, final_state)
-    if task_level == "medium":
-        return grade_medium(info, final_state)
-    if task_level == "hard":
-        return grade_hard(info, final_state)
-    return 0.5
+        return grade_easy(info, final_obs)
+    elif task_level == "medium":
+        return grade_medium(info, final_obs)
+    elif task_level == "hard":
+        return grade_hard(info, final_obs)
+    return 0.0
 
 
-# ─────────────────────────────────────────────
-# MAIN — entry point
-# ─────────────────────────────────────────────
-def main():
-    try:
-        # Try to get real API credentials
-        client, model_name = build_client()
+def run_task(task_level: str) -> float:
+    """Run one full episode for a given task level. Returns final score 0.0-1.0."""
+    env = CognitiveEnv()
+    observation = env.reset(task_level)
 
-        env_name    = "acie_hado"
-        total_scores = {}
-
-        if client is not None:
-            # ── REAL MODE ──────────────────────────────────
-            # Credentials were provided (validator injected them)
-            # We MUST call the LLM proxy — no shortcuts
-            print("[INFO] Real API credentials found — running real tasks", flush=True)
-
-            # Create the environment
-            if _ENV_AVAILABLE and CognitiveEnv is not None:
-                env = CognitiveEnv()
-            else:
-                print("[INFO] app.env not available — using mock env", flush=True)
-                env = None
-
-            for task_level in ["easy", "medium", "hard"]:
-                if env is not None:
-                    score = run_real_task(client, model_name, env, task_level)
-                else:
-                    # env missing but client exists — still call LLM to satisfy proxy check
-                    score = run_mock_task_with_llm(client, model_name, task_level, env_name)
-                total_scores[task_level] = score
-
-        else:
-            # ── MOCK MODE ──────────────────────────────────
-            # No credentials — validator is just checking format
-            print("[INFO] No credentials — running mock tasks", flush=True)
-
-            for task_level in ["easy", "medium", "hard"]:
-                score = run_mock_task(task_level, env_name, "mock-model")
-                total_scores[task_level] = score
-
-        avg_score = sum(total_scores.values()) / len(total_scores)
-        print(f"[SUMMARY] average_score={avg_score:.2f}", flush=True)
-
-    except Exception as e:
-        print(f"[FATAL] main() crashed: {e}", flush=True)
-
-
-# ─────────────────────────────────────────────
-# Special: run mock-style task but still call LLM
-# (used when env is missing but client exists)
-# ─────────────────────────────────────────────
-def run_mock_task_with_llm(client, model_name, task_level, env_name):
-    print_start(task_level, env_name, model_name)
-
-    # Minimal state so LLM can still respond
-    dummy_state = {
-        "cognitive_score": 45,
-        "fatigue_level": "medium",
-        "emotional_state": "neutral",
-        "pending_tasks": [
-            {"task_id": "lunch_order", "is_low_stakes": True, "is_stressful": False}
-        ],
-        "team_scores": {"User": 45, "Sara": 88}
-    }
-
-    reward_history = []
-    step = 0
+    rewards = []
     done = False
+    last_error = None
+    info = {}
 
-    while not done and step < 4:
-        action = ask_llm(client, model_name, task_level, dummy_state)
-        step  += 1
-        reward = 0.25
-        done   = (action.get("action_type") == "final_answer" or step >= 4)
+    print(f"[START] task={task_level} env={BENCHMARK} model={MODEL_NAME}", flush=True)
 
-        print_step(step, action, reward, done, None)
-        reward_history.append(f"{reward:.2f}")
+    step_num = 0
+    while not done and step_num < MAX_STEPS:
+        step_num += 1
 
-    score = 1.00
-    print_end(task_level, True, step, score, reward_history)
-    return score
+        # Get action from LLM
+        action = get_action_from_llm(observation, step_num)
+        action_str = action.get("action_type", "calculate_cognitive_score")
+        if action.get("target_task_id"):
+            action_str += f"(target={action['target_task_id']})"
+        if action.get("target_user"):
+            action_str += f"(user={action['target_user']})"
+
+        # Step the environment
+        try:
+            observation, reward, done, info = env.step(action)
+            rewards.append(reward)
+            last_error = None
+        except Exception as e:
+            last_error = str(e).replace("\n", " ")
+            rewards.append(0.0)
+            done = True
+
+        error_str = last_error if last_error else "null"
+        done_str = "true" if done else "false"
+
+        print(
+            f"[STEP] step={step_num} action={action_str} "
+            f"reward={reward:.2f} done={done_str} error={error_str}",
+            flush=True
+        )
+
+    # Grade the episode
+    final_score = get_grade(task_level, info, observation)
+    success = final_score >= 0.5
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+
+    print(
+        f"[END] success={'true' if success else 'false'} steps={step_num} "
+        f"score={final_score:.2f} rewards={rewards_str}",
+        flush=True
+    )
+
+    return final_score
+
+
+def main():
+    if not HF_TOKEN:
+        print("WARNING: HF_TOKEN not set. LLM calls will fail. Set HF_TOKEN env var.", file=sys.stderr)
+
+    tasks = ["easy", "medium", "hard"]
+    scores = {}
+
+    for task in tasks:
+        try:
+            score = run_task(task)
+            scores[task] = score
+        except Exception as e:
+            print(f"[END] success=false steps=0 score=0.00 rewards=", flush=True)
+            scores[task] = 0.0
+
+    avg = sum(scores.values()) / len(scores)
+    print(f"\n# Final Results: easy={scores.get('easy',0):.2f} medium={scores.get('medium',0):.2f} hard={scores.get('hard',0):.2f} average={avg:.2f}", flush=True)
 
 
 if __name__ == "__main__":
