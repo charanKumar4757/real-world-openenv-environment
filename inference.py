@@ -74,18 +74,10 @@ def print_step(step_num: int, action: dict, reward: float, done: bool, error=Non
     )
 
 
-def print_end(success: bool, steps: int, score: float, rewards: list):
-    """
-    CORRECT FORMAT — no task= field in [END].
-    score must be strictly between 0 and 1 (not 0.0, not 1.0).
-    """
+def print_end(success, steps, score, reward_history):
     success_text = "true" if success else "false"
-    safe_score = clamp_score(score)
-    rewards_str = ",".join(rewards)
-    print(
-        f"[END] success={success_text} steps={steps} score={safe_score:.2f} rewards={rewards_str}",
-        flush=True
-    )
+    rewards_str = ",".join(reward_history)
+    print(f"[END] success={success_text} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
 
 # ─────────────────────────────────────────────

@@ -167,145 +167,44 @@ def ui_get_state():
     return format_state(obs), "State refreshed.", history
 
 
-def ui_run_simulation():
-    """Automatically run the optimal action sequence for all 3 tasks."""
-    from src.grader import grade_easy, grade_medium, grade_hard
-    results = []
-    sequences = {
-        "easy": [
-            {"action_type": "calculate_cognitive_score"},
-            {"action_type": "activate_autopilot"},
-            {"action_type": "final_answer"},
-        ],
-        "medium": [
-            {"action_type": "forecast_regret"},
-            {"action_type": "trigger_recovery_mode"},
-            {"action_type": "isolate_stressful_task"},
-            {"action_type": "reorder_tasks"},
-            {"action_type": "activate_autopilot"},
-            {"action_type": "final_answer"},
-        ],
-        "hard": [
-            {"action_type": "forecast_regret"},
-            {"action_type": "predict_recovery"},
-            {"action_type": "trigger_recovery_mode"},
-            {"action_type": "isolate_stressful_task"},
-            {"action_type": "activate_autopilot"},
-            {"action_type": "redistribute_team_load"},
-            {"action_type": "final_answer"},
+def run_demo_task(task_level):
+    """Run a demo task episode and return formatted output with real environment state."""
+    try:
+        state = env.reset(task_level)
+        output = [
+            f"═══ ACIE-HADO Demo Task: {task_level.upper()} ═══\n",
+            format_state(state),
+            "\n--- Situation Summary ---",
+            state.get("situation_summary", "No summary available"),
         ]
-    }
-    graders = {"easy": grade_easy, "medium": grade_medium, "hard": grade_hard}
-    total = 0.0
-    for level, actions in sequences.items():
-        env.reset(level)
-        info = {}
-        for action in actions:
-            _, _, done, info = env.step(action)
-            if done:
-                break
-        final_state = env.state()
-        raw = graders[level](info, final_state)
-        score = max(0.01, min(0.99, raw))
-        total += score
-        status = "PASS" if score >= 0.40 else "FAIL"
-        results.append(f"{level.upper():8s}  score={score:.2f}  [{status}]")
-    avg = total / 3
-    results.append(f"\nAverage score: {avg:.2f}")
-    return "\n".join(results)
+        return "\n".join(output)
+    except Exception as e:
+        return f"Error running demo: {e}"
 
 
 # ── Gradio UI ─────────────────────────────────────────────────────
 with gr.Blocks(title="ACIE-HADO Environment") as demo:
 
-    gr.Markdown("## ACIE-HADO: Human-AI Decision Optimization Environment")
-    gr.Markdown("An RL environment where AI agents learn to manage human cognitive load and decision fatigue.")
+    gr.Markdown("## ACIE-HADO: Adaptive Cognitive Intelligence Environment")
+    gr.Markdown("Human-AI Decision Optimization — Real-Time Cognitive Load Management")
+    gr.Markdown("Click a button below to run a demo episode for each task level.")
 
     with gr.Row():
+        btn_easy = gr.Button("▶ Run Easy Task", variant="primary")
+        btn_medium = gr.Button("▶ Run Medium Task", variant="secondary")
+        btn_hard = gr.Button("▶ Run Hard Task", variant="secondary")
 
-        # Left column — controls
-        with gr.Column(scale=1):
-            gr.Markdown("### Setup")
-            task_dd = gr.Dropdown(
-                choices=["easy", "medium", "hard"],
-                value="easy",
-                label="Task Level"
-            )
-            reset_btn = gr.Button("Reset Environment", variant="primary")
-            get_state_btn = gr.Button("Refresh State")
-            run_sim_btn = gr.Button("Run Full Simulation (all 3 tasks)")
-
-            gr.Markdown("### Quick Actions")
-            gr.Markdown("Click any button to execute that action immediately:")
-
-            # CLICKABLE ACTION BUTTONS — Phase 3 requirement
-            btn_calc = gr.Button("Calculate Cognitive Score")
-            btn_predict = gr.Button("Predict Recovery")
-            btn_forecast = gr.Button("Forecast Regret")
-            btn_recovery = gr.Button("Trigger Recovery Mode")
-            btn_isolate = gr.Button("Isolate Stressful Task")
-            btn_reorder = gr.Button("Reorder Tasks")
-            btn_autopilot = gr.Button("Activate Autopilot")
-            btn_redistribute = gr.Button("Redistribute Team Load")
-            btn_transparency = gr.Button("Provide Transparency")
-            btn_reserve = gr.Button("Reserve Recovery Window")
-            btn_final = gr.Button("Final Answer (end episode)", variant="stop")
-
-            gr.Markdown("### Custom Action (JSON)")
-            action_input = gr.Textbox(
-                label="Custom action JSON",
-                placeholder='{"action_type": "isolate_stressful_task", "target_task_id": "angry_client_email"}',
-                lines=3
-            )
-            custom_btn = gr.Button("Run Custom Action")
-
-        # Right column — state display
-        with gr.Column(scale=2):
-            gr.Markdown("### Environment State")
-            state_display = gr.Textbox(
-                label="Current State",
-                lines=22,
-                interactive=False,
-                value="Click 'Reset Environment' to begin."
-            )
-            feedback_display = gr.Textbox(
-                label="Last Action Feedback",
-                lines=3,
-                interactive=False
-            )
-            history_display = gr.Textbox(
-                label="Action History",
-                lines=6,
-                interactive=False,
-                value="No actions yet."
-            )
-
-    sim_output = gr.Textbox(
-        label="Simulation Results",
-        lines=7,
-        interactive=False
+    output = gr.Textbox(
+        label="Episode Output",
+        lines=20,
+        interactive=False,
+        value="Click a button to run a demo task episode."
     )
 
-    # ── Wire up all buttons ───────────────────────────────────────
-    OUTS = [state_display, feedback_display, history_display]
-
-    reset_btn.click(fn=ui_reset, inputs=[task_dd], outputs=OUTS)
-    get_state_btn.click(fn=ui_get_state, inputs=[], outputs=OUTS)
-    run_sim_btn.click(fn=ui_run_simulation, inputs=[], outputs=[sim_output])
-    custom_btn.click(fn=ui_custom_step, inputs=[action_input], outputs=OUTS)
-
-    # Each clickable button calls ui_do_action with its action_type baked in
-    btn_calc.click(fn=lambda: ui_do_action("calculate_cognitive_score"), inputs=[], outputs=OUTS)
-    btn_predict.click(fn=lambda: ui_do_action("predict_recovery"), inputs=[], outputs=OUTS)
-    btn_forecast.click(fn=lambda: ui_do_action("forecast_regret"), inputs=[], outputs=OUTS)
-    btn_recovery.click(fn=lambda: ui_do_action("trigger_recovery_mode"), inputs=[], outputs=OUTS)
-    btn_isolate.click(fn=lambda: ui_do_action("isolate_stressful_task"), inputs=[], outputs=OUTS)
-    btn_reorder.click(fn=lambda: ui_do_action("reorder_tasks"), inputs=[], outputs=OUTS)
-    btn_autopilot.click(fn=lambda: ui_do_action("activate_autopilot"), inputs=[], outputs=OUTS)
-    btn_redistribute.click(fn=lambda: ui_do_action("redistribute_team_load"), inputs=[], outputs=OUTS)
-    btn_transparency.click(fn=lambda: ui_do_action("provide_transparency"), inputs=[], outputs=OUTS)
-    btn_reserve.click(fn=lambda: ui_do_action("reserve_recovery_window"), inputs=[], outputs=OUTS)
-    btn_final.click(fn=lambda: ui_do_action("final_answer"), inputs=[], outputs=OUTS)
+    # Wire up the three task buttons to run_demo_task
+    btn_easy.click(fn=lambda: run_demo_task("easy"), outputs=output)
+    btn_medium.click(fn=lambda: run_demo_task("medium"), outputs=output)
+    btn_hard.click(fn=lambda: run_demo_task("hard"), outputs=output)
 
 
 # ── Mount UI at /ui ───────────────────────────────────────────────

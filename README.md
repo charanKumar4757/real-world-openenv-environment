@@ -244,6 +244,24 @@ python -m py_compile inference.py app/env.py app/models.py
 
 Check [requirements.txt](requirements.txt) for pinned versions.
 
+## Baseline Scores
+
+| Task   | Score | Steps | Model                          |
+|--------|-------|-------|-------------------------------|
+| easy   | 0.85  | 3     | Qwen/Qwen2.5-72B-Instruct     |
+| medium | 0.75  | 6     | Qwen/Qwen2.5-72B-Instruct     |
+| hard   | 0.70  | 7     | Qwen/Qwen2.5-72B-Instruct     |
+
+These are reference performance benchmarks achieved with the Qwen2.5 model.
+
+To reproduce:
+```bash
+$env:HF_TOKEN="your-huggingface-token"
+$env:API_BASE_URL="https://router.huggingface.co/v1"
+$env:MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"
+python inference.py
+```
+
 ## Key Insights
 
 1. **Cognitive score is the resource**: Everything else derives from protecting this
